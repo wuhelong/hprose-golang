@@ -20,6 +20,7 @@
 package rpc
 
 import (
+	"errors"
 	"io"
 	"net"
 	"time"
@@ -93,6 +94,10 @@ func recvData(reader io.Reader, data *packet) (err error) {
 		if _, err = io.ReadAtLeast(reader, data.id[:], 4); err != nil {
 			return
 		}
+	}
+	if size > 1024*1024*10 {
+		err = errors.New("Package too big")
+		return
 	}
 	if cap(data.body) >= int(size) {
 		data.body = data.body[:size]
