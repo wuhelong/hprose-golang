@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hprose/hprose-golang/io"
@@ -570,7 +571,10 @@ func (service *BaseService) offline(t *topic, topic string, id string) {
 	}
 }
 
+type signals int32
+
 var heartbeatSignals = new(interface{})
+var clearBeforeSignals int32 = 0
 
 // Publish the hprose push topic
 func (service *BaseService) Publish(
@@ -589,16 +593,29 @@ func (service *BaseService) Publish(
 	service.topicLock.Unlock()
 	return service.AddFunction(topic, func(id string) interface{} {
 		message := t.get(id)
+		cid := signals(atomic.AddInt32(&clearBeforeSignals, 1))
 		if message == nil {
 			message = make(chan interface{})
 			t.put(id, message)
 			fireSubscribeEvent(topic, id, service)
 		}
+		select {
+		case message <- cid:
+		default:
+		}
+
 	receiveMessage:
 		select {
 		case result := <-message:
 			if result == heartbeatSignals {
 				goto receiveMessage
+			}
+			if result == cid {
+				goto receiveMessage
+			}
+			switch result.(type) {
+			case signals:
+				return nil
 			}
 			return result
 		case <-time.After(timeout):
